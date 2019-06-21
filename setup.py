@@ -7,5 +7,8 @@ setup(
     author_email='workingenius@163.com',
     url='https://github.com/workingenius/ltext',
     description='A tool for annotation offset calculation',
-    license='LGPLv3'
+    license='LGPLv3',
+    extras_require={
+        'pretty_print': ['termcolor'],
+    },
 )
