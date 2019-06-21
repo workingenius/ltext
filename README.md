@@ -6,14 +6,14 @@
 
 ## Inspiration
 
-In NLP tasks, cleanning corpus and annotating texts (add labels on texts) may happen in turn. Every label on the string should stay still and be kept as it is against all kinds of text cleanning operations, like removing extra blanks, upper case some certain substring, etc.
+In NLP tasks, preprocessing corpus and annotating texts (add labels on texts) may happen in turn. Every label on the string should stay still and be kept as it is against all kinds of text operations, like removing extra blanks, upper case some certain substring, etc.
 
 This lib encapsulates offset calculation of labels, in a class `LabeledText`. It aims to act like a string (supporting common methods of `str`), while keeps the excat location of every label, and protects them from being modified.
 
 Here's two common senarios that you may need ltext:
 
-+ corpus with annotation need a cleanning before model tranning
-+ annotate on normalized text and then you want to see labels before normalization
++ corpus with annotation need a cleanning before model training
++ annotation can be restored on the original text, even when you preprocess the text before you add the annotation
 
 You play with your corpus at will, with labels well protected.
 
@@ -31,7 +31,7 @@ LabeledText.literal('world--wide-web')
 LabeledText.literal('world  wide web')
 >>> lt = lt.re_replace(r' +', ' ')
 >>> lt
-LabeledText('world wide web')
+LabeledText.literal('world wide web')
 >>>
 >>> # annotate
 ...
