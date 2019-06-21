@@ -46,3 +46,16 @@ LabeledText.literal('[w]orld--[w]ide-[w]eb')
 
 ```
 
+## Installation
+
+Please clone the repo and pip install in editable mode. The lib has not been published to pypi yet.
+
+```shell
+git clone https://github.com/workingenius/ltext.git
+cd ltext
+# activate your custom python env
+pip install -e ./
+```
+
+And enjoy.
+
