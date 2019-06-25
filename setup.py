@@ -10,5 +10,6 @@ setup(
     license='LGPLv3',
     extras_require={
         'pretty_print': ['termcolor'],
+        'dev': ['coverage'],
     },
 )
