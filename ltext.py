@@ -90,6 +90,10 @@ class Span(object):
 
     __nonzero__ = __bool__
 
+    def translate(self, n):
+        # 平移
+        return self.__class__(start=self.start + n, end=self.end + n)
+
 
 # Relation checkers of the two Span
 # suppose that span a and span b is on the same string
@@ -372,7 +376,7 @@ class Transform(object):
                 cur_spt = spt_or_lb
                 cur_ofs += (cur_spt.to.length - cur_spt.frm.length)
 
-            elif isinstance(spt_or_lb, Label):
+            elif isinstance(spt_or_lb, Span):
                 lb = spt_or_lb
 
                 if cur_spt and cur_spt.length and is_overlap(cur_spt, lb):
@@ -396,17 +400,28 @@ class Transform(object):
         )
 
 
-class Label(SpanV):
-    def __init__(self, start, end, value):
-        super(Label, self).__init__(start, end, value)
+class Label(Span):
+    def __init__(self, start, end, text):
+        super(Label, self).__init__(start, end)
+        self.text = text
         assert bool(self), 'label can not be empty'
+
+    @property
+    def value(self):
+        return self.text[self.start: self.end]
 
     def __repr__(self):
         return 'Label({}, {}, value={})'.format(self.start, self.end, repr(self.value))
 
+    def __eq__(self, other):
+        return self.start == other.start and self.end == other.end and self.value == other.value
+
     def translate(self, n):
         # 平移
-        return Label(start=self.start + n, end=self.end + n, value=self.value)
+        return self.__class__(start=self.start + n, end=self.end + n, text=self.text)
+
+    def migrate(self, text):
+        return Label(start=self.start, end=self.end, text=text)
 
 
 class TestTransform(unittest.TestCase):
@@ -420,17 +435,17 @@ class TestTransform(unittest.TestCase):
             trans.trans_text('abc')
         )
 
-    def test_trans_label(self):
+    def test_trans_spans(self):
         trans = Transform([
             SpanTrans(frm=Span(1, 2), to=SpanV(0, 0, value='')),  # delete a char
         ])
 
         lbs = [
-            Label(0, 1, value='a'),
-            Label(2, 3, value='c')
+            Span(0, 1),
+            Span(2, 3)
         ]
         self.assertEqual(
-            [Label(0, 1, value='a'), Label(1, 2, value='c')],
+            [Span(0, 1), Span(1, 2)],
             trans.trans_labels(lbs)
         )
 
@@ -488,7 +503,7 @@ class LabeledText(object):
         else:
             raise TypeError('unrecognized type of label')
 
-        return Label(start=s, end=e, value=self.text[s: e])
+        return Label(start=s, end=e, text=self.text)
 
     def add_label(self, label_lst, raises_on_overlapping=True):
         if self.src_trans:
