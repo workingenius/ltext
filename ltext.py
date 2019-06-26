@@ -656,14 +656,24 @@ class LabeledText(object):
 
         return trans.trans_lt(self, raises_on_overlapping=raises_on_overlapping)
 
+    def _replace_cc(self, raw_func):
+        assert isinstance(self, LabeledText)
+
+        txt1 = self.text
+        txt2 = raw_func(txt1)
+        assert len(txt1) == len(txt2)
+
+        trans = TransformCC.make_by_diff(txt1, txt2)
+        return trans.trans_lt(self, n_txt=txt2)
+
     def capitalize(self):
-        return replace_cc(str.capitalize)(self)
+        return self._replace_cc(str.capitalize)
 
     def lower(self):
-        return replace_cc(str.lower)(self)
+        return self._replace_cc(str.lower)
 
     def upper(self):
-        return replace_cc(str.upper)(self)
+        return self._replace_cc(str.upper)
 
     def restore(self, till_end=False):
         if not (self.src_lt and self.src_trans):
@@ -771,20 +781,6 @@ class LabeledText(object):
 
     def __repr__(self):
         return '{cls}.literal({lt})'.format(cls=self.__class__.__name__, lt=repr(self.to_literal()))
-
-
-def replace_cc(func):
-    def replace(lt):
-        assert isinstance(lt, LabeledText)
-
-        txt1 = lt.text
-        txt2 = func(txt1)
-        assert len(txt1) == len(txt2)
-
-        trans = TransformCC.make_by_diff(txt1, txt2)
-        return trans.trans_lt(lt, n_txt=txt2)
-
-    return replace
 
 
 class TestLabeledText(unittest.TestCase):
