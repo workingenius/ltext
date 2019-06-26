@@ -90,6 +90,10 @@ class Span(object):
 
     __nonzero__ = __bool__
 
+    def translate(self, n):
+        # 平移
+        return self.__class__(start=self.start + n, end=self.end + n)
+
 
 # Relation checkers of the two Span
 # suppose that span a and span b is on the same string
@@ -300,7 +304,7 @@ class Transform(object):
         return pformat(self.spt_lst)
 
     def inverse(self):
-        return Transform([spt.inverse() for spt in self.spt_lst])
+        return self.__class__([spt.inverse() for spt in self.spt_lst])
 
     @classmethod
     def make(cls, span_to_v_pair_lst, text):
@@ -334,70 +338,65 @@ class Transform(object):
 
         return cls(spt_lst)
 
+    def trans_text(self, text):
+        """Apply a transform operation on a text"""
+        assert isinstance(text, str)
 
-def trans_text(transform, text):
-    """Apply a transform operation on a text"""
-    assert isinstance(transform, Transform)
-    assert isinstance(text, str)
+        char_lst = list(text)
 
-    char_lst = list(text)
+        for sp_frm, sp_to in reversed(list(self)):
+            char_lst[sp_frm.start:sp_frm.end] = sp_to.value
 
-    for sp_frm, sp_to in reversed(list(transform)):
-        char_lst[sp_frm.start:sp_frm.end] = sp_to.value
+        return ''.join(char_lst)
 
-    return ''.join(char_lst)
+    def trans_spans(self, label_lst, raises_on_overlapping=True):
+        """Apply a transform operation on several labels"""
 
+        if not self.spt_lst or not label_lst:
+            return label_lst
 
-class Label(SpanV):
-    def __init__(self, start, end, value):
-        super(Label, self).__init__(start, end, value)
-        assert bool(self), 'label can not be empty'
+        # check overlapping
+        label_lst = handle_overlapping(self.spt_lst, new_span_lst=label_lst, raises=raises_on_overlapping)
 
-    def __repr__(self):
-        return 'Label({}, {}, value={})'.format(self.start, self.end, repr(self.value))
+        # Suppose that labels is sorted with center, ascending.
+        # If transform span overlaps with a label, raise exception.
 
-    def translate(self, n):
-        # 平移
-        return Label(start=self.start + n, end=self.end + n, value=self.value)
+        new_label_lst = []
 
+        all_span_lst = sort_span(self.spt_lst + list(label_lst))
 
-def trans_labels(transform, label_lst, raises_on_overlapping=True):
-    """Apply a transform operation on several labels"""
-    assert isinstance(transform, Transform)
+        cur_ofs = 0
+        cur_spt = None
 
-    if not transform.spt_lst or not label_lst:
-        return label_lst
+        for spt_or_lb in all_span_lst:
 
-    # check overlapping
-    label_lst = handle_overlapping(transform.spt_lst, new_span_lst=label_lst, raises=raises_on_overlapping)
+            if isinstance(spt_or_lb, SpanTrans):
+                cur_spt = spt_or_lb
+                cur_ofs += (cur_spt.to.length - cur_spt.frm.length)
 
-    # Suppose that labels is sorted with center, ascending.
-    # If transform span overlaps with a label, raise exception.
+            elif isinstance(spt_or_lb, Span):
+                lb = spt_or_lb
 
-    new_label_lst = []
+                if cur_spt and cur_spt.length and is_overlap(cur_spt, lb):
+                    raise ValueError('transform overlaps with label')
 
-    all_span_lst = sort_span(transform.spt_lst + list(label_lst))
+                new_label_lst.append(
+                    lb.translate(cur_ofs)
+                )
 
-    cur_ofs = 0
-    cur_spt = None
+        return new_label_lst
 
-    for spt_or_lb in all_span_lst:
+    def trans_lt(self, lt, raises_on_overlapping=True):
+        n_txt = self.trans_text(lt.text)
+        n_lbs = self.trans_spans(lt.label_lst, raises_on_overlapping=raises_on_overlapping)
+        n_lbs = [lb.migrate(n_txt) for lb in n_lbs]
 
-        if isinstance(spt_or_lb, SpanTrans):
-            cur_spt = spt_or_lb
-            cur_ofs += (cur_spt.to.length - cur_spt.frm.length)
-
-        elif isinstance(spt_or_lb, Label):
-            lb = spt_or_lb
-
-            if cur_spt and cur_spt.length and is_overlap(cur_spt, lb):
-                raise ValueError('transform overlaps with label')
-
-            new_label_lst.append(
-                lb.translate(cur_ofs)
-            )
-
-    return new_label_lst
+        return LabeledText(
+            text=n_txt,
+            label_lst=n_lbs,
+            src_lt=lt,
+            src_trans=self
+        )
 
 
 class TestTransform(unittest.TestCase):
@@ -408,21 +407,21 @@ class TestTransform(unittest.TestCase):
 
         self.assertEqual(
             'bc',
-            trans_text(trans, 'abc')
+            trans.trans_text('abc')
         )
 
-    def test_trans_label(self):
+    def test_trans_spans(self):
         trans = Transform([
             SpanTrans(frm=Span(1, 2), to=SpanV(0, 0, value='')),  # delete a char
         ])
 
         lbs = [
-            Label(0, 1, value='a'),
-            Label(2, 3, value='c')
+            Span(0, 1),
+            Span(2, 3)
         ]
         self.assertEqual(
-            [Label(0, 1, value='a'), Label(1, 2, value='c')],
-            trans_labels(trans, lbs)
+            [Span(0, 1), Span(1, 2)],
+            trans.trans_spans(lbs)
         )
 
     def test_make_trans(self):
@@ -437,14 +436,114 @@ class TestTransform(unittest.TestCase):
 
         self.assertEqual(
             'Abdddexy',
-            trans_text(trans, text)
+            trans.trans_text(text)
         )
 
         # test inverse
         self.assertEqual(
             'abcdefg',
-            trans_text(trans.inverse(), 'Abdddexy')
+            trans.inverse().trans_text('Abdddexy')
         )
+
+
+class TransformCC(Transform):
+    """
+    A transform that map one Char to another Char, used to implement case conversion only.
+
+    Unlike ordinary Transform, a TransformCC operation modifies contents inside labels as well,
+    because case conversion doesn't change meaning of the sentence.
+    """
+
+    def trans_spans(self, label_lst, raises_on_overlapping=True):
+        return label_lst
+
+    def trans_lt(self, lt, n_txt=None, raises_on_overlapping=True):
+        if n_txt is None:
+            n_txt = self.trans_text(lt.text)
+
+        n_lbs = self.trans_spans(lt.label_lst, raises_on_overlapping=raises_on_overlapping)
+        n_lbs = [lb.migrate(n_txt) for lb in n_lbs]
+
+        return LabeledText(
+            text=n_txt,
+            label_lst=n_lbs,
+            src_lt=lt,
+            src_trans=self
+        )
+
+    @classmethod
+    def make_by_diff(cls, txt1, txt2):
+        """make TransformCC by diff two texts with same length"""
+        assert len(txt1) == len(txt2)
+
+        spt_lst = []
+        cur_sp = None
+
+        def acc_cur_sp():
+            s, e = cur_sp
+            spt_lst.append(
+                SpanTrans(
+                    frm=SpanV(s, e, value=txt1[s:e]),
+                    to=SpanV(s, e, value=txt2[s:e])
+                )
+            )
+
+        for i, (chr1, chr2) in enumerate(zip(txt1, txt2)):
+            if chr1 != chr2:
+
+                if cur_sp is None:
+                    cur_sp = [i, i + 1]
+                elif cur_sp[1] + 1 == i:
+                    cur_sp[1] = i
+
+                else:
+                    raise
+
+            if chr1 == chr2:
+                if cur_sp:
+                    acc_cur_sp()
+                    cur_sp = None
+
+        if cur_sp:
+            acc_cur_sp()
+
+        return cls(spt_lst=spt_lst)
+
+
+class TestTransformCC(unittest.TestCase):
+    def test_trans_text2(self):
+        t1 = 'aBcDeFgHiJk'
+        t2 = 'ABCDEFGHIJK'
+
+        trans = TransformCC.make_by_diff(t1, t2)
+
+        self.assertEqual(
+            trans.trans_text(t1), t2
+        )
+
+
+class Label(Span):
+    def __init__(self, start, end, text):
+        super(Label, self).__init__(start, end)
+        self.text = text
+        assert bool(self), 'label can not be empty'
+
+    @property
+    def value(self):
+        return self.text[self.start: self.end]
+
+    def __repr__(self):
+        return 'Label({}, {}, value={})'.format(self.start, self.end, repr(self.value))
+
+    def __eq__(self, other):
+        return self.start == other.start and self.end == other.end and self.text == other.text
+
+    def translate(self, n):
+        # 平移
+        return self.__class__(start=self.start + n, end=self.end + n, text=self.text)
+
+    def migrate(self, text):
+        return Label(start=self.start, end=self.end, text=text)
 
 
 class LabeledText(object):
@@ -479,7 +578,7 @@ class LabeledText(object):
         else:
             raise TypeError('unrecognized type of label')
 
-        return Label(start=s, end=e, value=self.text[s: e])
+        return Label(start=s, end=e, text=self.text)
 
     def add_label(self, label_lst, raises_on_overlapping=True):
         if self.src_trans:
@@ -535,15 +634,7 @@ class LabeledText(object):
             (sp, new) for sp in span_lst
         ], text=self.text)
 
-        n_txt = trans_text(trans, self.text)
-        n_lbs = trans_labels(trans, self.label_lst, raises_on_overlapping=raises_on_overlapping)
-
-        return LabeledText(
-            text=n_txt,
-            label_lst=n_lbs,
-            src_lt=self,
-            src_trans=trans
-        )
+        return trans.trans_lt(self, raises_on_overlapping=raises_on_overlapping)
 
     def re_replace(self, pattern, repl, count=None, flags=None, raises_on_overlapping=True):
         if flags:
@@ -570,24 +661,26 @@ class LabeledText(object):
 
         trans = Transform.make(_pairs, text=self.text)
 
-        n_txt = trans_text(trans, self.text)
-        n_lbs = trans_labels(trans, self.label_lst, raises_on_overlapping=raises_on_overlapping)
+        return trans.trans_lt(self, raises_on_overlapping=raises_on_overlapping)
 
-        return LabeledText(
-            text=n_txt,
-            label_lst=n_lbs,
-            src_lt=self,
-            src_trans=trans
-        )
+    def _replace_cc(self, raw_func):
+        assert isinstance(self, LabeledText)
+
+        txt1 = self.text
+        txt2 = raw_func(txt1)
+        assert len(txt1) == len(txt2)
+
+        trans = TransformCC.make_by_diff(txt1, txt2)
+        return trans.trans_lt(self, n_txt=txt2)
 
     def capitalize(self):
-        return replace_cc(str.capitalize)(self)
+        return self._replace_cc(str.capitalize)
 
     def lower(self):
-        return replace_cc(str.lower)(self)
+        return self._replace_cc(str.lower)
 
     def upper(self):
-        return replace_cc(str.upper)(self)
+        return self._replace_cc(str.upper)
 
     def restore(self, till_end=False):
         if not (self.src_lt and self.src_trans):
@@ -596,9 +689,7 @@ class LabeledText(object):
         def _restore_once(_lt):
             return LabeledText(
                 text=_lt.src_lt.text,
-                label_lst=trans_labels(
-                    _lt.src_trans.inverse(),
-                    _lt.label_lst),
+                label_lst=_lt.src_trans.inverse().trans_spans(_lt.label_lst),
                 src_lt=_lt.src_lt.src_lt,
                 src_trans=_lt.src_lt.src_trans
             )
@@ -699,62 +790,6 @@ class LabeledText(object):
         return '{cls}.literal({lt})'.format(cls=self.__class__.__name__, lt=repr(self.to_literal()))
 
 
-def mk_trans1(txt1, txt2):
-    """make Transform by diff two text with same length"""
-    assert len(txt1) == len(txt2)
-
-    spt_lst = []
-    cur_sp = None
-
-    for i, (chr1, chr2) in enumerate(zip(txt1, txt2)):
-        if chr1 != chr2:
-
-            if cur_sp is None:
-                cur_sp = [i, i + 1]
-            elif cur_sp[1] + 1 == i:
-                cur_sp[1] = i
-
-            else:
-                raise
-
-        if chr1 == chr2:
-            if cur_sp is None:
-                pass
-            else:
-                s, e = cur_sp
-                spt_lst.append(
-                    SpanTrans(
-                        frm=SpanV(s, e, value=txt1[s:e]),
-                        to=SpanV(s, e, value=txt2[s:e])
-                    )
-                )
-                cur_sp = None
-
-    return Transform(spt_lst=spt_lst)
-
-
-def replace_cc(func):
-
-    def replace(lt):
-        assert isinstance(lt, LabeledText)
-
-        txt1 = lt.text
-        txt2 = func(txt1)
-        assert len(txt1) == len(txt2)
-
-        trans = mk_trans1(txt1, txt2)
-        lbs2 = trans_labels(trans, lt.label_lst)
-
-        return LabeledText(
-            text=txt2,
-            label_lst=lbs2,
-            src_lt=lt,
-            src_trans=trans
-        )
-
-    return replace
-
-
 class TestLabeledText(unittest.TestCase):
     def test_replace_happy(self):
         ls = LabeledText.literal('鸟宿池边树，僧[推]月下门')
@@ -801,6 +836,19 @@ class TestLabeledText(unittest.TestCase):
             LabeledText.literal('A[B]C[D]E[F]G[H]I[J]K').equals(
                 lt.upper()
             )
+        )
+
+    def test_upper_overlapping(self):
+        lt = LabeledText.literal('[aBcD]e[F]g[H]i[J]k')
+
+        self.assertTrue(
+            LabeledText.literal('[ABCD]E[F]G[H]I[J]K').equals(
+                lt.upper()
+            )
+        )
+
+        self.assertTrue(
+            lt.upper().restore().equals(lt)
         )
 
     def test_handle_overlapping(self):
