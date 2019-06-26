@@ -19,7 +19,7 @@ LabeledText.literal('world--wide-web')
 LabeledText.literal('world  wide web')
 >>> lt = lt.re_replace(r' +', ' ')
 >>> lt
-LabeledText('world wide web')
+LabeledText.literal('world wide web')
 >>>
 >>> # Start label
 ...
@@ -30,6 +30,7 @@ LabeledText.literal('[w]orld [w]ide [w]eb')
 >>> # Start restore
 ...
 >>> lt = lt.restore(till_end=True)
+>>> lt
 LabeledText.literal('[w]orld--[w]ide-[w]eb')
 
 """
@@ -45,7 +46,6 @@ try:
     from typing import List, Tuple, Optional
 except ImportError:
     pass
-
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +83,10 @@ class Span(object):
         return 'Span({}, {})'.format(self.start, self.end)
 
     def __eq__(self, other):
-        return self.start == other.start and self.end == other.end
+        return isinstance(other, Span) and self.start == other.start and self.end == other.end
 
     def __bool__(self):
-        return not is_empty(self)
+        return self.start < self.end
 
     __nonzero__ = __bool__
 
@@ -135,12 +135,7 @@ def is_overlap(spa, spb):
 
 def is_contain(spa, spb):
     """a contains b"""
-    return not is_equal(spa, spb) and spa.start <= spb.start and spa.end >= spb.end
-
-
-def is_equal(spa, spb):
-    """a and b are equal"""
-    return spa.start == spb.start and spa.end == spb.end
+    return spa != spb and spa.start <= spb.start and spa.end >= spb.end
 
 
 def _log_overlap(span_a, span_b):
@@ -214,10 +209,6 @@ def handle_overlapping(base_span_lst, new_span_lst, raises=True):
                 pass
 
 
-def is_empty(sp):
-    return sp.start == sp.end
-
-
 class SpanV(Span):
     """A span with value"""
 
@@ -277,7 +268,7 @@ class SpanTrans(object):
         yield self.to
 
     def __bool__(self):
-        return not is_empty(self)
+        return self.start < self.end
 
     __nonzero__ = __bool__
 
@@ -533,10 +524,11 @@ class Label(Span):
         return self.text[self.start: self.end]
 
     def __repr__(self):
-        return 'Label({}, {}, value={})'.format(self.start, self.end, repr(self.value))
+        return 'Label({}, {}, text={})'.format(self.start, self.end, repr(self.text))
 
     def __eq__(self, other):
-        return self.start == other.start and self.end == other.end and self.text == other.text
+        return isinstance(other, self.__class__) and self.start == other.start and \
+               self.end == other.end and self.text == other.text
 
     def translate(self, n):
         # 平移
@@ -600,9 +592,9 @@ class LabeledText(object):
         return (
                 self.text == other.text
                 and all(
-                    (isinstance(a, Label) and a == b)
-                    for a, b in zip(self.label_lst, other.label_lst)
-                )
+            (isinstance(a, Label) and a == b)
+            for a, b in zip(self.label_lst, other.label_lst)
+        )
         )
 
     def replace(self, old, new, count=None, raises_on_overlapping=True):
@@ -876,8 +868,8 @@ class TestLabeledText(unittest.TestCase):
                 .replace('w', 'W')
                 .add_label([(0, 2), (2, 4)], raises_on_overlapping=False)
                 .equals(
-                    LabeledText.literal('Wo[rl]d Wide Web')
-                )
+                LabeledText.literal('Wo[rl]d Wide Web')
+            )
         )
 
         # suppressing alerts when add label on replaced span
@@ -886,6 +878,6 @@ class TestLabeledText(unittest.TestCase):
                 .add_label([(0, 2), (2, 4)])
                 .replace('w', 'W', raises_on_overlapping=False)
                 .equals(
-                    LabeledText.literal('Wo[rl]d Wide Web')
-                )
+                LabeledText.literal('Wo[rl]d Wide Web')
+            )
         )
