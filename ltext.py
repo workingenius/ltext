@@ -384,6 +384,17 @@ class Transform(object):
 
         return new_label_lst
 
+    def trans_lt(self, lt, raises_on_overlapping=True):
+        n_txt = self.trans_text(lt.text)
+        n_lbs = self.trans_labels(lt.label_lst, raises_on_overlapping=raises_on_overlapping)
+
+        return LabeledText(
+            text=n_txt,
+            label_lst=n_lbs,
+            src_lt=lt,
+            src_trans=self
+        )
+
 
 class Label(SpanV):
     def __init__(self, start, end, value):
@@ -533,15 +544,7 @@ class LabeledText(object):
             (sp, new) for sp in span_lst
         ], text=self.text)
 
-        n_txt = trans.trans_text(self.text)
-        n_lbs = trans.trans_labels(self.label_lst, raises_on_overlapping=raises_on_overlapping)
-
-        return LabeledText(
-            text=n_txt,
-            label_lst=n_lbs,
-            src_lt=self,
-            src_trans=trans
-        )
+        return trans.trans_lt(self, raises_on_overlapping=raises_on_overlapping)
 
     def re_replace(self, pattern, repl, count=None, flags=None, raises_on_overlapping=True):
         if flags:
@@ -568,15 +571,7 @@ class LabeledText(object):
 
         trans = Transform.make(_pairs, text=self.text)
 
-        n_txt = trans.trans_text(self.text)
-        n_lbs = trans.trans_labels(self.label_lst, raises_on_overlapping=raises_on_overlapping)
-
-        return LabeledText(
-            text=n_txt,
-            label_lst=n_lbs,
-            src_lt=self,
-            src_trans=trans
-        )
+        return trans.trans_lt(self, raises_on_overlapping=raises_on_overlapping)
 
     def capitalize(self):
         return replace_cc(str.capitalize)(self)
