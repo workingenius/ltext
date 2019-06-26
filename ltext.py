@@ -464,6 +464,56 @@ class TransformCC(Transform):
             src_trans=self
         )
 
+    @classmethod
+    def make_by_diff(cls, txt1, txt2):
+        """make Transform by diff two text with same length"""
+        assert len(txt1) == len(txt2)
+
+        spt_lst = []
+        cur_sp = None
+
+        def acc_cur_sp():
+            s, e = cur_sp
+            spt_lst.append(
+                SpanTrans(
+                    frm=SpanV(s, e, value=txt1[s:e]),
+                    to=SpanV(s, e, value=txt2[s:e])
+                )
+            )
+
+        for i, (chr1, chr2) in enumerate(zip(txt1, txt2)):
+            if chr1 != chr2:
+
+                if cur_sp is None:
+                    cur_sp = [i, i + 1]
+                elif cur_sp[1] + 1 == i:
+                    cur_sp[1] = i
+
+                else:
+                    raise
+
+            if chr1 == chr2:
+                if cur_sp:
+                    acc_cur_sp()
+                    cur_sp = None
+
+        if cur_sp:
+            acc_cur_sp()
+
+        return cls(spt_lst=spt_lst)
+
+
+class TestTransformCC(unittest.TestCase):
+    def test_trans_text2(self):
+        t1 = 'aBcDeFgHiJk'
+        t2 = 'ABCDEFGHIJK'
+
+        trans = TransformCC.make_by_diff(t1, t2)
+
+        self.assertEqual(
+            trans.trans_text(t1), t2
+        )
+
 
 class Label(Span):
     def __init__(self, start, end, text):
@@ -723,58 +773,7 @@ class LabeledText(object):
         return '{cls}.literal({lt})'.format(cls=self.__class__.__name__, lt=repr(self.to_literal()))
 
 
-def mk_trans_cc(txt1, txt2):
-    """make Transform by diff two text with same length"""
-    assert len(txt1) == len(txt2)
-
-    spt_lst = []
-    cur_sp = None
-
-    def acc_cur_sp():
-        s, e = cur_sp
-        spt_lst.append(
-            SpanTrans(
-                frm=SpanV(s, e, value=txt1[s:e]),
-                to=SpanV(s, e, value=txt2[s:e])
-            )
-        )
-
-    for i, (chr1, chr2) in enumerate(zip(txt1, txt2)):
-        if chr1 != chr2:
-
-            if cur_sp is None:
-                cur_sp = [i, i + 1]
-            elif cur_sp[1] + 1 == i:
-                cur_sp[1] = i
-
-            else:
-                raise
-
-        if chr1 == chr2:
-            if cur_sp:
-                acc_cur_sp()
-                cur_sp = None
-
-    if cur_sp:
-        acc_cur_sp()
-
-    return TransformCC(spt_lst=spt_lst)
-
-
-class TestMakeTransCC(unittest.TestCase):
-    def test_trans_text2(self):
-        t1 = 'aBcDeFgHiJk'
-        t2 = 'ABCDEFGHIJK'
-
-        trans = mk_trans_cc(t1, t2)
-
-        self.assertEqual(
-            trans.trans_text(t1), t2
-        )
-
-
 def replace_cc(func):
-
     def replace(lt):
         assert isinstance(lt, LabeledText)
 
@@ -782,7 +781,7 @@ def replace_cc(func):
         txt2 = func(txt1)
         assert len(txt1) == len(txt2)
 
-        trans = mk_trans_cc(txt1, txt2)
+        trans = TransformCC.make_by_diff(txt1, txt2)
         return trans.trans_lt(lt, n_txt=txt2)
 
     return replace
