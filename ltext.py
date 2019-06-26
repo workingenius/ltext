@@ -350,7 +350,7 @@ class Transform(object):
 
         return ''.join(char_lst)
 
-    def trans_labels(self, label_lst, raises_on_overlapping=True):
+    def trans_spans(self, label_lst, raises_on_overlapping=True):
         """Apply a transform operation on several labels"""
         assert isinstance(self, Transform)
 
@@ -390,7 +390,8 @@ class Transform(object):
 
     def trans_lt(self, lt, raises_on_overlapping=True):
         n_txt = self.trans_text(lt.text)
-        n_lbs = self.trans_labels(lt.label_lst, raises_on_overlapping=raises_on_overlapping)
+        n_lbs = self.trans_spans(lt.label_lst, raises_on_overlapping=raises_on_overlapping)
+        n_lbs = [lb.migrate(n_txt) for lb in n_lbs]
 
         return LabeledText(
             text=n_txt,
@@ -414,7 +415,7 @@ class Label(Span):
         return 'Label({}, {}, value={})'.format(self.start, self.end, repr(self.value))
 
     def __eq__(self, other):
-        return self.start == other.start and self.end == other.end and self.value == other.value
+        return self.start == other.start and self.end == other.end and self.text == other.text
 
     def translate(self, n):
         # 平移
@@ -446,7 +447,7 @@ class TestTransform(unittest.TestCase):
         ]
         self.assertEqual(
             [Span(0, 1), Span(1, 2)],
-            trans.trans_labels(lbs)
+            trans.trans_spans(lbs)
         )
 
     def test_make_trans(self):
@@ -604,7 +605,7 @@ class LabeledText(object):
         def _restore_once(_lt):
             return LabeledText(
                 text=_lt.src_lt.text,
-                label_lst=_lt.src_trans.inverse().trans_labels(_lt.label_lst),
+                label_lst=_lt.src_trans.inverse().trans_spans(_lt.label_lst),
                 src_lt=_lt.src_lt.src_lt,
                 src_trans=_lt.src_lt.src_trans
             )
@@ -749,7 +750,7 @@ def replace_cc(func):
         assert len(txt1) == len(txt2)
 
         trans = mk_trans1(txt1, txt2)
-        lbs2 = trans.trans_labels(lt.label_lst)
+        lbs2 = trans.trans_spans(lt.label_lst)
 
         return LabeledText(
             text=txt2,
