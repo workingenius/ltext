@@ -447,6 +447,13 @@ class TestTransform(unittest.TestCase):
 
 
 class TransformCC(Transform):
+    """
+    A transform that map one Char to another Char, used to implement case conversion only.
+
+    Unlike ordinary Transform, a TransformCC operation modifies contents inside labels as well,
+    because case conversion doesn't change meaning of the sentence.
+    """
+
     def trans_spans(self, label_lst, raises_on_overlapping=True):
         return label_lst
 
@@ -466,7 +473,7 @@ class TransformCC(Transform):
 
     @classmethod
     def make_by_diff(cls, txt1, txt2):
-        """make Transform by diff two text with same length"""
+        """make TransformCC by diff two texts with same length"""
         assert len(txt1) == len(txt2)
 
         spt_lst = []
