@@ -304,7 +304,7 @@ class Transform(object):
         return pformat(self.spt_lst)
 
     def inverse(self):
-        return Transform([spt.inverse() for spt in self.spt_lst])
+        return self.__class__([spt.inverse() for spt in self.spt_lst])
 
     @classmethod
     def make(cls, span_to_v_pair_lst, text):
@@ -340,7 +340,6 @@ class Transform(object):
 
     def trans_text(self, text):
         """Apply a transform operation on a text"""
-        assert isinstance(self, Transform)
         assert isinstance(text, str)
 
         char_lst = list(text)
@@ -352,7 +351,6 @@ class Transform(object):
 
     def trans_spans(self, label_lst, raises_on_overlapping=True):
         """Apply a transform operation on several labels"""
-        assert isinstance(self, Transform)
 
         if not self.spt_lst or not label_lst:
             return label_lst
@@ -401,30 +399,6 @@ class Transform(object):
         )
 
 
-class Label(Span):
-    def __init__(self, start, end, text):
-        super(Label, self).__init__(start, end)
-        self.text = text
-        assert bool(self), 'label can not be empty'
-
-    @property
-    def value(self):
-        return self.text[self.start: self.end]
-
-    def __repr__(self):
-        return 'Label({}, {}, value={})'.format(self.start, self.end, repr(self.value))
-
-    def __eq__(self, other):
-        return self.start == other.start and self.end == other.end and self.text == other.text
-
-    def translate(self, n):
-        # 平移
-        return self.__class__(start=self.start + n, end=self.end + n, text=self.text)
-
-    def migrate(self, text):
-        return Label(start=self.start, end=self.end, text=text)
-
-
 class TestTransform(unittest.TestCase):
     def test_trans_text(self):
         trans = Transform([
@@ -470,6 +444,49 @@ class TestTransform(unittest.TestCase):
             'abcdefg',
             trans.inverse().trans_text('Abdddexy')
         )
+
+
+class TransformCC(Transform):
+    def trans_spans(self, label_lst, raises_on_overlapping=True):
+        return label_lst
+
+    def trans_lt(self, lt, n_txt=None, raises_on_overlapping=True):
+        if n_txt is None:
+            n_txt = self.trans_text(lt.text)
+
+        n_lbs = self.trans_spans(lt.label_lst, raises_on_overlapping=raises_on_overlapping)
+        n_lbs = [lb.migrate(n_txt) for lb in n_lbs]
+
+        return LabeledText(
+            text=n_txt,
+            label_lst=n_lbs,
+            src_lt=lt,
+            src_trans=self
+        )
+
+
+class Label(Span):
+    def __init__(self, start, end, text):
+        super(Label, self).__init__(start, end)
+        self.text = text
+        assert bool(self), 'label can not be empty'
+
+    @property
+    def value(self):
+        return self.text[self.start: self.end]
+
+    def __repr__(self):
+        return 'Label({}, {}, value={})'.format(self.start, self.end, repr(self.value))
+
+    def __eq__(self, other):
+        return self.start == other.start and self.end == other.end and self.text == other.text
+
+    def translate(self, n):
+        # 平移
+        return self.__class__(start=self.start + n, end=self.end + n, text=self.text)
+
+    def migrate(self, text):
+        return Label(start=self.start, end=self.end, text=text)
 
 
 class LabeledText(object):
@@ -737,7 +754,7 @@ def mk_trans1(txt1, txt2):
                 )
                 cur_sp = None
 
-    return Transform(spt_lst=spt_lst)
+    return TransformCC(spt_lst=spt_lst)
 
 
 def replace_cc(func):
@@ -750,14 +767,7 @@ def replace_cc(func):
         assert len(txt1) == len(txt2)
 
         trans = mk_trans1(txt1, txt2)
-        lbs2 = trans.trans_spans(lt.label_lst)
-
-        return LabeledText(
-            text=txt2,
-            label_lst=lbs2,
-            src_lt=lt,
-            src_trans=trans
-        )
+        return trans.trans_lt(lt, n_txt=txt2)
 
     return replace
 
@@ -808,6 +818,19 @@ class TestLabeledText(unittest.TestCase):
             LabeledText.literal('A[B]C[D]E[F]G[H]I[J]K').equals(
                 lt.upper()
             )
+        )
+
+    def test_upper_overlapping(self):
+        lt = LabeledText.literal('[aBcD]e[F]g[H]i[J]k')
+
+        self.assertTrue(
+            LabeledText.literal('[ABCD]E[F]G[H]I[J]K').equals(
+                lt.upper()
+            )
+        )
+
+        self.assertTrue(
+            lt.upper().restore().equals(lt)
         )
 
     def test_handle_overlapping(self):
