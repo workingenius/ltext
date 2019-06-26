@@ -334,18 +334,55 @@ class Transform(object):
 
         return cls(spt_lst)
 
+    def trans_text(self, text):
+        """Apply a transform operation on a text"""
+        assert isinstance(self, Transform)
+        assert isinstance(text, str)
 
-def trans_text(transform, text):
-    """Apply a transform operation on a text"""
-    assert isinstance(transform, Transform)
-    assert isinstance(text, str)
+        char_lst = list(text)
 
-    char_lst = list(text)
+        for sp_frm, sp_to in reversed(list(self)):
+            char_lst[sp_frm.start:sp_frm.end] = sp_to.value
 
-    for sp_frm, sp_to in reversed(list(transform)):
-        char_lst[sp_frm.start:sp_frm.end] = sp_to.value
+        return ''.join(char_lst)
 
-    return ''.join(char_lst)
+    def trans_labels(self, label_lst, raises_on_overlapping=True):
+        """Apply a transform operation on several labels"""
+        assert isinstance(self, Transform)
+
+        if not self.spt_lst or not label_lst:
+            return label_lst
+
+        # check overlapping
+        label_lst = handle_overlapping(self.spt_lst, new_span_lst=label_lst, raises=raises_on_overlapping)
+
+        # Suppose that labels is sorted with center, ascending.
+        # If transform span overlaps with a label, raise exception.
+
+        new_label_lst = []
+
+        all_span_lst = sort_span(self.spt_lst + list(label_lst))
+
+        cur_ofs = 0
+        cur_spt = None
+
+        for spt_or_lb in all_span_lst:
+
+            if isinstance(spt_or_lb, SpanTrans):
+                cur_spt = spt_or_lb
+                cur_ofs += (cur_spt.to.length - cur_spt.frm.length)
+
+            elif isinstance(spt_or_lb, Label):
+                lb = spt_or_lb
+
+                if cur_spt and cur_spt.length and is_overlap(cur_spt, lb):
+                    raise ValueError('transform overlaps with label')
+
+                new_label_lst.append(
+                    lb.translate(cur_ofs)
+                )
+
+        return new_label_lst
 
 
 class Label(SpanV):
@@ -361,45 +398,6 @@ class Label(SpanV):
         return Label(start=self.start + n, end=self.end + n, value=self.value)
 
 
-def trans_labels(transform, label_lst, raises_on_overlapping=True):
-    """Apply a transform operation on several labels"""
-    assert isinstance(transform, Transform)
-
-    if not transform.spt_lst or not label_lst:
-        return label_lst
-
-    # check overlapping
-    label_lst = handle_overlapping(transform.spt_lst, new_span_lst=label_lst, raises=raises_on_overlapping)
-
-    # Suppose that labels is sorted with center, ascending.
-    # If transform span overlaps with a label, raise exception.
-
-    new_label_lst = []
-
-    all_span_lst = sort_span(transform.spt_lst + list(label_lst))
-
-    cur_ofs = 0
-    cur_spt = None
-
-    for spt_or_lb in all_span_lst:
-
-        if isinstance(spt_or_lb, SpanTrans):
-            cur_spt = spt_or_lb
-            cur_ofs += (cur_spt.to.length - cur_spt.frm.length)
-
-        elif isinstance(spt_or_lb, Label):
-            lb = spt_or_lb
-
-            if cur_spt and cur_spt.length and is_overlap(cur_spt, lb):
-                raise ValueError('transform overlaps with label')
-
-            new_label_lst.append(
-                lb.translate(cur_ofs)
-            )
-
-    return new_label_lst
-
-
 class TestTransform(unittest.TestCase):
     def test_trans_text(self):
         trans = Transform([
@@ -408,7 +406,7 @@ class TestTransform(unittest.TestCase):
 
         self.assertEqual(
             'bc',
-            trans_text(trans, 'abc')
+            trans.trans_text('abc')
         )
 
     def test_trans_label(self):
@@ -422,7 +420,7 @@ class TestTransform(unittest.TestCase):
         ]
         self.assertEqual(
             [Label(0, 1, value='a'), Label(1, 2, value='c')],
-            trans_labels(trans, lbs)
+            trans.trans_labels(lbs)
         )
 
     def test_make_trans(self):
@@ -437,13 +435,13 @@ class TestTransform(unittest.TestCase):
 
         self.assertEqual(
             'Abdddexy',
-            trans_text(trans, text)
+            trans.trans_text(text)
         )
 
         # test inverse
         self.assertEqual(
             'abcdefg',
-            trans_text(trans.inverse(), 'Abdddexy')
+            trans.inverse().trans_text('Abdddexy')
         )
 
 
@@ -535,8 +533,8 @@ class LabeledText(object):
             (sp, new) for sp in span_lst
         ], text=self.text)
 
-        n_txt = trans_text(trans, self.text)
-        n_lbs = trans_labels(trans, self.label_lst, raises_on_overlapping=raises_on_overlapping)
+        n_txt = trans.trans_text(self.text)
+        n_lbs = trans.trans_labels(self.label_lst, raises_on_overlapping=raises_on_overlapping)
 
         return LabeledText(
             text=n_txt,
@@ -570,8 +568,8 @@ class LabeledText(object):
 
         trans = Transform.make(_pairs, text=self.text)
 
-        n_txt = trans_text(trans, self.text)
-        n_lbs = trans_labels(trans, self.label_lst, raises_on_overlapping=raises_on_overlapping)
+        n_txt = trans.trans_text(self.text)
+        n_lbs = trans.trans_labels(self.label_lst, raises_on_overlapping=raises_on_overlapping)
 
         return LabeledText(
             text=n_txt,
@@ -596,9 +594,7 @@ class LabeledText(object):
         def _restore_once(_lt):
             return LabeledText(
                 text=_lt.src_lt.text,
-                label_lst=trans_labels(
-                    _lt.src_trans.inverse(),
-                    _lt.label_lst),
+                label_lst=_lt.src_trans.inverse().trans_labels(_lt.label_lst),
                 src_lt=_lt.src_lt.src_lt,
                 src_trans=_lt.src_lt.src_trans
             )
@@ -743,7 +739,7 @@ def replace_cc(func):
         assert len(txt1) == len(txt2)
 
         trans = mk_trans1(txt1, txt2)
-        lbs2 = trans_labels(trans, lt.label_lst)
+        lbs2 = trans.trans_labels(lt.label_lst)
 
         return LabeledText(
             text=txt2,
