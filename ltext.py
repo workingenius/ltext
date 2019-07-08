@@ -19,7 +19,7 @@ LabeledText.literal('world--wide-web')
 LabeledText.literal('world  wide web')
 >>> lt = lt.re_replace(r' +', ' ')
 >>> lt
-LabeledText('world wide web')
+LabeledText.literal('world wide web')
 >>>
 >>> # Start label
 ...
@@ -30,6 +30,7 @@ LabeledText.literal('[w]orld [w]ide [w]eb')
 >>> # Start restore
 ...
 >>> lt = lt.restore(till_end=True)
+>>> lt
 LabeledText.literal('[w]orld--[w]ide-[w]eb')
 
 """
